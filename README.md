@@ -42,10 +42,19 @@ The server also ships `instructions` (served in `server/discover`) telling the m
 You need four values:
 
 - **Developer token** — Google Ads manager account → *Tools & Settings → API Center*. Note the [access levels](https://developers.google.com/google-ads/api/docs/access-levels): *Test* reaches test accounts only, *Explorer* is capped at 2,880 operations/day and blocks several services, *Basic* gives 15,000/day, *Standard* is uncapped.
-- **OAuth client id and secret** — Google Cloud Console → *APIs & Services → Credentials → OAuth client ID*, with the Google Ads API enabled on the project.
-- **Refresh token** — generated for the scope `https://www.googleapis.com/auth/adwords`.
+- **OAuth client id and secret** — Google Cloud Console → *APIs & Services → Credentials → OAuth client ID*, with the Google Ads API enabled on the project. Choose **Desktop app** unless you have a reason not to: it allows the loopback redirect the helper below uses, with nothing to register.
+- **Refresh token** — for the scope `https://www.googleapis.com/auth/adwords`. If you don't have one:
 
-A service account will **not** work here without domain-wide delegation; the Google Ads API expects a user credential.
+  ```bash
+  node scripts/get-refresh-token.mjs path/to/your-oauth-client.json
+  ```
+
+  It runs the consent flow against a local loopback and writes the client id, secret and refresh token into `.dev.vars` — no copy-pasting a token through your scrollback. Pass `--print` if you'd rather handle it yourself.
+
+Two things that catch people out:
+
+- A **service account will not work** without domain-wide delegation. The Google Ads API expects a user credential.
+- While your OAuth consent screen is in **Testing**, refresh tokens **expire after 7 days**. Publish the app before you rely on one for a deployed server, or the Worker starts failing with `invalid_grant` a week later.
 
 ### 2. Install and configure
 
@@ -70,12 +79,25 @@ Then either point the [MCP Inspector](https://github.com/modelcontextprotocol/in
 
 ### 4. Deploy
 
+Load the four Google secrets straight from a credentials file, without them passing through your terminal:
+
+```bash
+./scripts/set-secrets.sh path/to/credentials.json
+```
+
+Or set each one by hand:
+
 ```bash
 npx wrangler secret put GOOGLE_ADS_DEVELOPER_TOKEN
 npx wrangler secret put GOOGLE_ADS_CLIENT_ID
 npx wrangler secret put GOOGLE_ADS_CLIENT_SECRET
 npx wrangler secret put GOOGLE_ADS_REFRESH_TOKEN
-npx wrangler secret put MCP_SHARED_SECRET      # if using bearer auth
+```
+
+Then pick an auth gate — **without one the server refuses every request** — and ship:
+
+```bash
+npx wrangler secret put MCP_SHARED_SECRET
 npx wrangler deploy
 ```
 
