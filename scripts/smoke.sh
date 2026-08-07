@@ -47,6 +47,25 @@ status() { curl -sS -o /dev/null -w '%{http_code}' "$@"; }
 
 echo "Smoke test against $BASE"
 
+# Fail fast and say why. Without this, an unreachable server produces a wall of
+# curl errors and a row of failures that all mean the same thing.
+if [[ "$(status --max-time 5 "$BASE/" 2>/dev/null)" != "200" ]]; then
+  cat >&2 <<EOF
+
+Cannot reach $BASE
+
+This script tests a server that is already running; it does not start one.
+Open another terminal and run:
+
+  npm run dev
+
+then run this again. To test a deployed Worker instead:
+
+  ./scripts/smoke.sh https://your-worker.workers.dev "\$TOKEN"
+EOF
+  exit 1
+fi
+
 check "liveness" "200" "$(status "$BASE/")"
 
 check "unauthenticated /mcp is refused" "401" \
@@ -70,8 +89,11 @@ body='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{'"$META"'}}'
 tools="$(rpc tools/list '' "$body")"
 check "tools/list exposes 4 read-only tools" "4" \
   "$(printf '%s' "$tools" | grep -o '"readOnlyHint":true' | wc -l | tr -d ' ')"
-check "no mutating tool is exposed" "0" \
-  "$(printf '%s' "$tools" | grep -o '"readOnlyHint":false' | wc -l | tr -d ' ')"
+# Phrased so it can actually fail: an empty response must not read as "clean".
+# Requires evidence that annotations came back AND that none of them is a write.
+check "no mutating tool is exposed" "yes" \
+  "$(printf '%s' "$tools" | grep -q '"readOnlyHint":true' &&
+     ! printf '%s' "$tools" | grep -q '"readOnlyHint":false' && echo yes || echo no)"
 
 legacy="$(curl -sS -X POST "$BASE/mcp" -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' -H "authorization: Bearer $TOKEN" \
