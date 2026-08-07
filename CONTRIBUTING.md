@@ -21,7 +21,7 @@ npm test
 
 Both run in CI, along with `wrangler deploy --dry-run` to catch anything the Workers runtime cannot bundle.
 
-If your change touches request handling, run the smoke script against a local `npm run dev` too — it covers the `2026-07-28` path and the 2025-era fallback end to end.
+If your change touches request handling, run `npm run verify` too — it starts a server, exercises both the `2026-07-28` path and the 2025-era fallback end to end, and tears the server down.
 
 ## Scope
 

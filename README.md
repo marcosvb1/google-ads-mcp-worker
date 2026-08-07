@@ -71,10 +71,16 @@ cp .dev.vars.example .dev.vars   # fill it in
 npm run dev
 ```
 
-Then either point the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) at `http://localhost:8787/mcp` (`npm run inspect`), or run the smoke script:
+Or check everything in one command — it starts a server, smoke-tests it and shuts it down:
 
 ```bash
-./scripts/smoke.sh
+npm run verify
+```
+
+To poke at it by hand, point the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) at `http://localhost:8787/mcp` (`npm run inspect`). `./scripts/smoke.sh` tests a server you are already running, or a deployed one:
+
+```bash
+./scripts/smoke.sh https://your-worker.workers.dev "$TOKEN"
 ```
 
 ### 4. Deploy

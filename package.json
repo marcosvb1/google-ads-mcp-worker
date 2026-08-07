@@ -23,6 +23,7 @@
   ],
   "scripts": {
     "dev": "wrangler dev",
+    "verify": "./scripts/verify.sh",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
