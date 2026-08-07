@@ -1,0 +1,30 @@
+# Copy to `.dev.vars` (gitignored) for local development.
+# In production these go in `wrangler secret put` instead — never in wrangler.jsonc.
+
+# ── Google Ads credentials ───────────────────────────────────────────────────
+GOOGLE_ADS_DEVELOPER_TOKEN="your-developer-token"
+GOOGLE_ADS_CLIENT_ID="xxxxx.apps.googleusercontent.com"
+GOOGLE_ADS_CLIENT_SECRET="your-oauth-client-secret"
+GOOGLE_ADS_REFRESH_TOKEN="your-refresh-token"
+
+# Manager (MCC) account id, digits only. Required when the accounts you query
+# are reached through a manager — omitting it is the usual cause of
+# USER_PERMISSION_DENIED.
+# GOOGLE_ADS_LOGIN_CUSTOMER_ID="1234567890"
+
+# Restrict which accounts this deployment may query. Unset = any account the
+# credentials can reach.
+# GOOGLE_ADS_ALLOWED_CUSTOMER_IDS="1234567890,0987654321"
+
+# ── Who may call this server ────────────────────────────────────────────────
+# Pick ONE. With none of them set the server denies every request.
+
+# 1. Bearer token — simplest for local work and for a Worker behind an MCP Portal.
+MCP_SHARED_SECRET="pick-a-long-random-string"
+
+# 2. Cloudflare Access — set both to require a verified Access JWT.
+# ACCESS_TEAM_DOMAIN="https://your-team.cloudflareaccess.com"
+# ACCESS_AUD="your-application-audience-tag"
+
+# 3. No auth at all. Local development only.
+# MCP_ALLOW_UNAUTHENTICATED="true"

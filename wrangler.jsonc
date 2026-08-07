@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "google-ads-mcp-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-07",
+  "observability": { "enabled": true },
+
+  // No Durable Object and no `nodejs_compat`: MCP 2026-07-28 is stateless, and
+  // this server is a thin REST proxy that holds nothing between requests.
+
+  "vars": {
+    // Google Ads API version used in request paths. Current as of 2026-08-07 is
+    // v25 (released 2026-07-22, sunset ~Aug 2027). Google blocks retired
+    // versions abruptly — v21 started returning "Version v21 is deprecated.
+    // Requests to this version will be blocked." mid-session on 2026-08-07.
+    // Bump this var to migrate; no code change needed.
+    "GOOGLE_ADS_API_VERSION": "v25"
+
+    // ── Optional auth config (see README) ──────────────────────────────────
+    // Cloudflare Access mode — set BOTH to require a valid Access JWT:
+    // "ACCESS_TEAM_DOMAIN": "https://your-team.cloudflareaccess.com",
+    // "ACCESS_AUD": "<Application Audience tag>",
+    //
+    // Manager (MCC) account that owns the client accounts, digits only.
+    // Sent as `login-customer-id` on every call.
+    // "GOOGLE_ADS_LOGIN_CUSTOMER_ID": "1234567890",
+    //
+    // Comma-separated allowlist of customer IDs this deployment may query.
+    // Empty/unset = any account the credentials can reach.
+    // "GOOGLE_ADS_ALLOWED_CUSTOMER_IDS": "1234567890,0987654321"
+  }
+
+  // ── Secrets — never in this file ────────────────────────────────────────
+  // Local dev: .dev.vars (gitignored). Production:
+  //   npx wrangler secret put GOOGLE_ADS_DEVELOPER_TOKEN
+  //   npx wrangler secret put GOOGLE_ADS_CLIENT_ID
+  //   npx wrangler secret put GOOGLE_ADS_CLIENT_SECRET
+  //   npx wrangler secret put GOOGLE_ADS_REFRESH_TOKEN
+  //   npx wrangler secret put MCP_SHARED_SECRET        // if using bearer mode
+}
