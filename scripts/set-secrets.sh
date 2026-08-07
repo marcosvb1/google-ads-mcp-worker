@@ -9,13 +9,13 @@
 #   ./scripts/set-secrets.sh --local path/to/credentials.json # write .dev.vars instead
 #   ./scripts/set-secrets.sh --profile globex creds.json       # a named profile
 #
-# A profile suffixes every variable (GOOGLE_ADS_DEVELOPER_TOKEN_GLOBEX, …) so one
+# A profile suffixes every variable (GOOGLE_ADS_DEVELOPER_TOKEN_GLOBEX, ...) so one
 # deployment can serve several manager accounts, each with its own token and login.
 #
 # The JSON may be either shape:
-#   • gcloud ADC          — from `gcloud auth application-default login`
+#   * gcloud ADC          -- from `gcloud auth application-default login`
 #                           (top-level client_id / client_secret / refresh_token)
-#   • OAuth client secret — downloaded from Google Cloud Console
+#   * OAuth client secret -- downloaded from Google Cloud Console
 #                           (nested under "installed" or "web"; has no refresh
 #                           token, so you will be prompted for one)
 set -euo pipefail
@@ -95,7 +95,7 @@ fi
 
 put() { printf '%s' "$2" | npx wrangler secret put "$1" >/dev/null && echo "  set $1"; }
 
-echo "Setting Worker secrets${PROFILE:+ for profile $PROFILE}…"
+echo "Setting Worker secrets${PROFILE:+ for profile $PROFILE}..."
 put "GOOGLE_ADS_CLIENT_ID$SUFFIX" "$CLIENT_ID"
 put "GOOGLE_ADS_CLIENT_SECRET$SUFFIX" "$CLIENT_SECRET"
 put "GOOGLE_ADS_REFRESH_TOKEN$SUFFIX" "$REFRESH_TOKEN"
@@ -103,7 +103,7 @@ put "GOOGLE_ADS_DEVELOPER_TOKEN$SUFFIX" "$DEVELOPER_TOKEN"
 
 echo
 echo "Done. Remaining steps:"
-echo "  • Set an auth gate, or the server will refuse every request:"
+echo "  * Set an auth gate, or the server will refuse every request:"
 echo "      npx wrangler secret put MCP_SHARED_SECRET"
-echo "  • If your accounts sit under a manager, set GOOGLE_ADS_LOGIN_CUSTOMER_ID$SUFFIX in wrangler.jsonc"
-echo "  • npx wrangler deploy"
+echo "  * If your accounts sit under a manager, set GOOGLE_ADS_LOGIN_CUSTOMER_ID$SUFFIX in wrangler.jsonc"
+echo "  * npx wrangler deploy"

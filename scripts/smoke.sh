@@ -5,7 +5,7 @@
 #   ./scripts/smoke.sh https://your-worker.workers.dev "$TOKEN"
 #
 # Exercises the 2026-07-28 path and the 2025-era fallback. Does not need working
-# Google credentials — it never calls a tool that reaches Google.
+# Google credentials -- it never calls a tool that reaches Google.
 set -uo pipefail
 
 BASE="${1:-http://localhost:8787}"

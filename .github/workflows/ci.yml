@@ -21,6 +21,20 @@ jobs:
 
       - run: npm ci
 
+      # bash 3.2 (still what macOS ships) grows the variable name into any
+      # adjacent high byte once a locale is set, so `$PORT…` becomes an unbound
+      # `PORT<byte>`. It works on a C-locale machine and fails on a normal one,
+      # which is the worst way for a bug to behave. Keep the scripts ASCII.
+      - name: Shell scripts are ASCII-only
+        run: |
+          if LC_ALL=C grep -n '[^ -~]' scripts/*.sh; then
+            echo "::error::Non-ASCII byte in a shell script (see above)."
+            exit 1
+          fi
+
+      - name: Shell scripts parse
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+
       - name: Typecheck
         run: npm run typecheck
 

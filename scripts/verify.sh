@@ -31,13 +31,13 @@ requests are refused). Create one with:
 
   cp .dev.vars.example .dev.vars
 
-and set at least MCP_SHARED_SECRET. Google credentials are optional — nothing
+and set at least MCP_SHARED_SECRET. Google credentials are optional -- nothing
 in the smoke test calls Google.
 EOF
   exit 1
 fi
 
-echo "Starting a local server on port $PORT…"
+echo "Starting a local server on port $PORT..."
 npx wrangler dev --port "$PORT" >"$LOG" 2>&1 &
 PID=$!
 
