@@ -7,6 +7,10 @@
 #   ./scripts/set-secrets.sh                                  # default gcloud ADC path
 #   ./scripts/set-secrets.sh path/to/credentials.json
 #   ./scripts/set-secrets.sh --local path/to/credentials.json # write .dev.vars instead
+#   ./scripts/set-secrets.sh --profile globex creds.json       # a named profile
+#
+# A profile suffixes every variable (GOOGLE_ADS_DEVELOPER_TOKEN_GLOBEX, …) so one
+# deployment can serve several manager accounts, each with its own token and login.
 #
 # The JSON may be either shape:
 #   • gcloud ADC          — from `gcloud auth application-default login`
@@ -17,10 +21,17 @@
 set -euo pipefail
 
 LOCAL=0
-if [[ "${1:-}" == "--local" ]]; then
-  LOCAL=1
-  shift
-fi
+PROFILE=""
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --local) LOCAL=1; shift ;;
+    --profile) PROFILE="$(printf '%s' "${2:?--profile needs a name}" | tr '[:lower:]-' '[:upper:]_')"; shift 2 ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Empty for the default profile, "_GLOBEX" for a named one.
+SUFFIX="${PROFILE:+_$PROFILE}"
 
 SOURCE="${1:-$HOME/.config/gcloud/application_default_credentials.json}"
 
@@ -63,35 +74,36 @@ if [[ -z "$REFRESH_TOKEN" ]]; then
   echo
 fi
 
-read -rsp "Google Ads developer token: " DEVELOPER_TOKEN
+read -rsp "Google Ads developer token${PROFILE:+ for profile $PROFILE}: " DEVELOPER_TOKEN
 echo
 [[ -n "$DEVELOPER_TOKEN" ]] || { echo "A developer token is required." >&2; exit 1; }
 
 if [[ $LOCAL -eq 1 ]]; then
   umask 077
   {
-    printf 'GOOGLE_ADS_CLIENT_ID="%s"\n' "$CLIENT_ID"
-    printf 'GOOGLE_ADS_CLIENT_SECRET="%s"\n' "$CLIENT_SECRET"
-    printf 'GOOGLE_ADS_REFRESH_TOKEN="%s"\n' "$REFRESH_TOKEN"
-    printf 'GOOGLE_ADS_DEVELOPER_TOKEN="%s"\n' "$DEVELOPER_TOKEN"
-    printf 'MCP_SHARED_SECRET="%s"\n' "$(openssl rand -hex 32)"
-  } > .dev.vars
-  echo "Wrote .dev.vars (gitignored), including a fresh random MCP_SHARED_SECRET."
+    [[ -f .dev.vars ]] && grep -vE "^GOOGLE_ADS_(CLIENT_ID|CLIENT_SECRET|REFRESH_TOKEN|DEVELOPER_TOKEN)${SUFFIX}=" .dev.vars
+    printf 'GOOGLE_ADS_CLIENT_ID%s="%s"\n' "$SUFFIX" "$CLIENT_ID"
+    printf 'GOOGLE_ADS_CLIENT_SECRET%s="%s"\n' "$SUFFIX" "$CLIENT_SECRET"
+    printf 'GOOGLE_ADS_REFRESH_TOKEN%s="%s"\n' "$SUFFIX" "$REFRESH_TOKEN"
+    printf 'GOOGLE_ADS_DEVELOPER_TOKEN%s="%s"\n' "$SUFFIX" "$DEVELOPER_TOKEN"
+    grep -q '^MCP_SHARED_SECRET=' .dev.vars 2>/dev/null || printf 'MCP_SHARED_SECRET="%s"\n' "$(openssl rand -hex 32)"
+  } > .dev.vars.tmp && mv .dev.vars.tmp .dev.vars
+  echo "Wrote .dev.vars (gitignored)${PROFILE:+ for profile $PROFILE}."
   echo "Run: npm run dev && ./scripts/smoke.sh"
   exit 0
 fi
 
 put() { printf '%s' "$2" | npx wrangler secret put "$1" >/dev/null && echo "  set $1"; }
 
-echo "Setting Worker secrets…"
-put GOOGLE_ADS_CLIENT_ID "$CLIENT_ID"
-put GOOGLE_ADS_CLIENT_SECRET "$CLIENT_SECRET"
-put GOOGLE_ADS_REFRESH_TOKEN "$REFRESH_TOKEN"
-put GOOGLE_ADS_DEVELOPER_TOKEN "$DEVELOPER_TOKEN"
+echo "Setting Worker secrets${PROFILE:+ for profile $PROFILE}…"
+put "GOOGLE_ADS_CLIENT_ID$SUFFIX" "$CLIENT_ID"
+put "GOOGLE_ADS_CLIENT_SECRET$SUFFIX" "$CLIENT_SECRET"
+put "GOOGLE_ADS_REFRESH_TOKEN$SUFFIX" "$REFRESH_TOKEN"
+put "GOOGLE_ADS_DEVELOPER_TOKEN$SUFFIX" "$DEVELOPER_TOKEN"
 
 echo
 echo "Done. Remaining steps:"
 echo "  • Set an auth gate, or the server will refuse every request:"
 echo "      npx wrangler secret put MCP_SHARED_SECRET"
-echo "  • If your accounts sit under a manager, set GOOGLE_ADS_LOGIN_CUSTOMER_ID in wrangler.jsonc"
+echo "  • If your accounts sit under a manager, set GOOGLE_ADS_LOGIN_CUSTOMER_ID$SUFFIX in wrangler.jsonc"
 echo "  • npx wrangler deploy"

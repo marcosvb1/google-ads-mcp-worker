@@ -1,6 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { normalizeCustomerId, GoogleAdsError } from "../src/google-ads";
+import { listProfiles, resolveProfile } from "../src/profiles";
 
 const PROTOCOL = "2026-07-28";
 const TOKEN = "test-secret";
@@ -162,5 +163,71 @@ describe("query guardrails", () => {
       page_size: 99_999,
     });
     expect(JSON.stringify(result)).toContain("Too big");
+  });
+});
+
+describe("credential profiles", () => {
+  // Suffixed variables define additional profiles; anything a profile omits is
+  // inherited from the default. `env` here mimics the Worker binding object.
+  const env = {
+    GOOGLE_ADS_DEVELOPER_TOKEN: "dev-default",
+    GOOGLE_ADS_CLIENT_ID: "client-default",
+    GOOGLE_ADS_CLIENT_SECRET: "secret-default",
+    GOOGLE_ADS_REFRESH_TOKEN: "refresh-default",
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID: "1111111111",
+
+    GOOGLE_ADS_DEVELOPER_TOKEN_GLOBEX: "dev-globex",
+    GOOGLE_ADS_CLIENT_ID_GLOBEX: "client-globex",
+    GOOGLE_ADS_CLIENT_SECRET_GLOBEX: "secret-globex",
+    GOOGLE_ADS_REFRESH_TOKEN_GLOBEX: "refresh-globex",
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID_GLOBEX: "222-333-4444",
+
+    // Inherits every credential from the default; only the manager differs.
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID_ACME: "1234567890",
+  };
+
+  it("discovers profiles from suffixed variables, default first", () => {
+    expect(listProfiles(env)).toEqual(["default", "acme", "globex"]);
+  });
+
+  it("does not mistake unrelated GOOGLE_ADS_ variables for profiles", () => {
+    expect(
+      listProfiles({
+        GOOGLE_ADS_DEVELOPER_TOKEN: "x",
+        GOOGLE_ADS_API_VERSION: "v25",
+        GOOGLE_ADS_ALLOWED_CUSTOMER_IDS: "1234567890",
+      }),
+    ).toEqual(["default"]);
+  });
+
+  it("resolves a profile's own credentials", async () => {
+    const profile = await resolveProfile(env, "globex");
+    expect(profile.developerToken).toBe("dev-globex");
+    expect(profile.clientId).toBe("client-globex");
+    expect(profile.loginCustomerId).toBe("2223334444"); // hyphens stripped
+  });
+
+  it("inherits unset fields from the default profile", async () => {
+    const profile = await resolveProfile(env, "acme");
+    expect(profile.developerToken).toBe("dev-default");
+    expect(profile.refreshToken).toBe("refresh-default");
+    expect(profile.loginCustomerId).toBe("1234567890"); // its own
+  });
+
+  it("keeps the default profile free of any suffixed value", async () => {
+    const profile = await resolveProfile(env);
+    expect(profile.name).toBe("default");
+    expect(profile.developerToken).toBe("dev-default");
+    expect(profile.loginCustomerId).toBe("1111111111");
+  });
+
+  it("names the configured profiles when asked for one that does not exist", async () => {
+    await expect(resolveProfile(env, "nope")).rejects.toThrow(/Configured profiles: default, acme, globex/);
+  });
+
+  it("says which variables are missing when a profile is incomplete", async () => {
+    await expect(
+      resolveProfile({ GOOGLE_ADS_DEVELOPER_TOKEN_X: "only-a-token" }, "x"),
+    ).rejects.toThrow(/GOOGLE_ADS_CLIENT_ID_X/);
   });
 });

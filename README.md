@@ -101,6 +101,31 @@ npx wrangler secret put MCP_SHARED_SECRET
 npx wrangler deploy
 ```
 
+## Serving more than one manager account
+
+Developer tokens are issued **per manager account** and carry their own daily operation quota, and a client's MCC usually arrives with its own token and its own login. So "which credentials" is a property of the account being queried, not of the deployment.
+
+Suffix any credential variable with `_<PROFILE>` to add a profile:
+
+```bash
+# default profile
+npx wrangler secret put GOOGLE_ADS_DEVELOPER_TOKEN
+
+# profile "globex" — its own token and manager, reusing the default login
+npx wrangler secret put GOOGLE_ADS_DEVELOPER_TOKEN_GLOBEX
+# GOOGLE_ADS_LOGIN_CUSTOMER_ID_GLOBEX goes in wrangler.jsonc (not a secret)
+```
+
+Or in one step, per profile:
+
+```bash
+./scripts/set-secrets.sh --profile globex path/to/credentials.json
+```
+
+Then every tool takes a `profile` argument. It is typed as an enum of the profiles you actually configured, so a wrong value fails schema validation with the real list rather than as a confusing permission error from Google. Anything a profile leaves unset is **inherited from the default**, so sharing one Google login across several managers costs one variable per profile. Results echo back which profile served them.
+
+With a single profile configured, the argument is not advertised at all — nothing to think about until you need it.
+
 ## Authentication
 
 Two separate questions, easy to conflate:
@@ -146,12 +171,14 @@ Clients that predate the `2026-07-28` revision still work: the handler serves 20
 | `GOOGLE_ADS_CLIENT_ID` | secret | — | required |
 | `GOOGLE_ADS_CLIENT_SECRET` | secret | — | required |
 | `GOOGLE_ADS_REFRESH_TOKEN` | secret | — | required, scope `adwords` |
-| `GOOGLE_ADS_API_VERSION` | var | `v25` | see the version note below |
 | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | var | — | manager account id, digits only |
+| `GOOGLE_ADS_API_VERSION` | var | `v25` | see the version note below |
 | `GOOGLE_ADS_ALLOWED_CUSTOMER_IDS` | var | — | comma-separated allowlist |
 | `ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` | var | — | enables Cloudflare Access mode |
 | `MCP_SHARED_SECRET` | secret | — | enables bearer mode |
 | `MCP_ALLOW_UNAUTHENTICATED` | var | — | `"true"` disables the gate |
+
+Any of the five `GOOGLE_ADS_*` credential variables may carry a `_<PROFILE>` suffix to define an additional profile — see [above](#serving-more-than-one-manager-account). `GOOGLE_ADS_API_VERSION` and `GOOGLE_ADS_ALLOWED_CUSTOMER_IDS` are deployment-wide and are never suffixed.
 
 Secrets may also be supplied through the [Secrets Store](https://developers.cloudflare.com/secrets-store/integrations/workers/); the code reads either a plain string binding or a store binding.
 

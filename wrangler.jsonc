@@ -27,7 +27,12 @@
     //
     // Comma-separated allowlist of customer IDs this deployment may query.
     // Empty/unset = any account the credentials can reach.
-    // "GOOGLE_ADS_ALLOWED_CUSTOMER_IDS": "1234567890,0987654321"
+    // "GOOGLE_ADS_ALLOWED_CUSTOMER_IDS": "1234567890,0987654321",
+    //
+    // Serving more than one manager account? Suffix any GOOGLE_ADS_* variable
+    // with _<PROFILE> to add a credential profile; callers select it per call.
+    // Non-secret parts live here, secrets go through `wrangler secret put`.
+    // "GOOGLE_ADS_LOGIN_CUSTOMER_ID_GLOBEX": "2223334444"
   }
 
   // ── Secrets — never in this file ────────────────────────────────────────

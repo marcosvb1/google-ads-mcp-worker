@@ -3,7 +3,11 @@
 //
 //   node scripts/get-refresh-token.mjs                       # prompts for client id/secret
 //   node scripts/get-refresh-token.mjs path/to/client.json   # reads them from a file
-//   node scripts/get-refresh-token.mjs client.json --print    # print instead of writing
+//   node scripts/get-refresh-token.mjs client.json --print   # print instead of writing
+//   node scripts/get-refresh-token.mjs client.json --profile globex
+//
+// --profile suffixes the variables it writes (GOOGLE_ADS_CLIENT_ID_GLOBEX, …), so
+// one deployment can hold separate credentials per manager account.
 //
 // By default the token is written into .dev.vars (gitignored) rather than
 // printed, so it does not end up in your scrollback or shell history.
@@ -25,7 +29,14 @@ const SCOPE = "https://www.googleapis.com/auth/adwords";
 
 const args = argv.slice(2);
 const printOnly = args.includes("--print");
-const file = args.find((a) => !a.startsWith("--"));
+
+const profileArg = args[args.indexOf("--profile") + 1];
+const profile = args.includes("--profile") && profileArg && !profileArg.startsWith("--")
+  ? profileArg.toUpperCase().replace(/[^A-Z0-9]+/g, "_")
+  : "";
+const suffix = profile ? `_${profile}` : "";
+
+const file = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--profile");
 
 async function credentials() {
   if (file) {
@@ -148,23 +159,27 @@ if (!refreshToken) {
 }
 
 if (printOnly) {
-  console.log(`\nGOOGLE_ADS_REFRESH_TOKEN="${refreshToken}"`);
+  console.log(`\nGOOGLE_ADS_REFRESH_TOKEN${suffix}="${refreshToken}"`);
   exit(0);
 }
 
+const stale = new RegExp(`^GOOGLE_ADS_(REFRESH_TOKEN|CLIENT_ID|CLIENT_SECRET)${suffix}=`);
 const lines = existsSync(".dev.vars")
   ? readFileSync(".dev.vars", "utf8")
       .split("\n")
-      .filter((l) => !/^GOOGLE_ADS_(REFRESH_TOKEN|CLIENT_ID|CLIENT_SECRET)=/.test(l))
+      .filter((l) => l.trim() && !stale.test(l))
   : [];
 
-lines.push(`GOOGLE_ADS_CLIENT_ID="${clientId}"`);
-lines.push(`GOOGLE_ADS_CLIENT_SECRET="${clientSecret}"`);
-lines.push(`GOOGLE_ADS_REFRESH_TOKEN="${refreshToken}"`);
+lines.push(`GOOGLE_ADS_CLIENT_ID${suffix}="${clientId}"`);
+lines.push(`GOOGLE_ADS_CLIENT_SECRET${suffix}="${clientSecret}"`);
+lines.push(`GOOGLE_ADS_REFRESH_TOKEN${suffix}="${refreshToken}"`);
 
-writeFileSync(".dev.vars", lines.filter(Boolean).join("\n") + "\n", { mode: 0o600 });
+writeFileSync(".dev.vars", lines.join("\n") + "\n", { mode: 0o600 });
 
-console.log("\nWrote client id, client secret and refresh token to .dev.vars (gitignored).");
-console.log("Still needed there: GOOGLE_ADS_DEVELOPER_TOKEN and an auth gate (MCP_SHARED_SECRET).");
+console.log(
+  `\nWrote client id, client secret and refresh token to .dev.vars (gitignored)` +
+    `${profile ? ` for profile ${profile.toLowerCase()}` : ""}.`,
+);
+console.log(`Still needed there: GOOGLE_ADS_DEVELOPER_TOKEN${suffix} and an auth gate (MCP_SHARED_SECRET).`);
 console.log("\nHeads up: if your OAuth consent screen is still in Testing, this refresh token");
 console.log("expires in 7 days. Publish the app before relying on it for a deployed server.");

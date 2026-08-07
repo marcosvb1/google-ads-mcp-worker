@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { Env } from "./env";
 import { GoogleAdsClient, GoogleAdsError, MAX_PAGE_SIZE } from "./google-ads";
+import { listProfiles, ProfileError, resolveProfile } from "./profiles";
 
 /**
  * Tool results share the model's context window, so cap what we ever return
@@ -39,7 +40,9 @@ function ok(data: unknown, structured?: Record<string, unknown>) {
 
 function fail(error: unknown) {
   const message =
-    error instanceof GoogleAdsError
+    error instanceof ProfileError
+      ? error.message
+      : error instanceof GoogleAdsError
       ? error.requestId
         ? `${error.message} (request id: ${error.requestId})`
         : error.message
@@ -53,6 +56,33 @@ const customerIdField = z
   .string()
   .describe("Customer id of the Google Ads account, digits only (hyphens are stripped).");
 
+/**
+ * Selecting credentials. Modelled as an enum of the profiles this deployment
+ * actually has, so a wrong value fails at schema validation with the real list
+ * in the message rather than as a puzzling permission error from Google.
+ */
+function profileField(profiles: string[]) {
+  if (profiles.length < 2) return undefined;
+  return z
+    .enum(profiles as [string, ...string[]])
+    .optional()
+    .describe(
+      `Which credentials to use. Configured: ${profiles.join(", ")}. ` +
+        `Each profile is a separate developer token, manager account and login. ` +
+        `Defaults to "${profiles[0]}".`,
+    );
+}
+
+/** Per-call override for the manager account, within whichever profile is used. */
+const loginCustomerIdField = z
+  .string()
+  .optional()
+  .describe(
+    "Manager (MCC) account id to authenticate through, digits only. Only needed when the " +
+      "target account sits under a different manager than the profile's own — getting it " +
+      "wrong shows up as USER_PERMISSION_DENIED.",
+  );
+
 /** GAQL is read-only by construction, but reject anything that isn't a SELECT early and clearly. */
 function assertSelectQuery(query: string): void {
   if (!/^\s*SELECT\s/i.test(query)) {
@@ -64,7 +94,16 @@ function assertSelectQuery(query: string): void {
 }
 
 export function registerGoogleAdsTools(server: McpServer, env: Env): void {
-  const client = new GoogleAdsClient(env);
+  const profiles = listProfiles(env);
+  const profile = profileField(profiles);
+
+  /** Credentials are resolved per call, because the caller chooses the profile. */
+  const clientFor = async (name?: string) =>
+    new GoogleAdsClient(env, await resolveProfile(env, name));
+
+  /** Only advertise the profile argument when there is a choice to make. */
+  const withProfile = <T extends z.ZodRawShape>(shape: T) =>
+    z.object(profile ? { ...shape, profile } : shape);
 
   server.registerTool(
     "list_accessible_customers",
@@ -74,20 +113,20 @@ export function registerGoogleAdsTools(server: McpServer, env: Env): void {
         "List the Google Ads customer ids the configured credentials can reach directly. " +
         "Call this first when the user has not named an account. Note that a manager (MCC) " +
         "account returns only itself here — use list_customer_clients to expand it.",
-      inputSchema: z.object({}),
+      inputSchema: withProfile({ login_customer_id: loginCustomerIdField }),
       outputSchema: z.object({
+        profile: z.string(),
         customerIds: z.array(z.string()),
         count: z.number(),
       }),
       annotations: READ_ONLY,
     },
-    async () => {
+    async (args: { profile?: string; login_customer_id?: string }) => {
       try {
-        const customerIds = await client.listAccessibleCustomers();
-        return ok({ customerIds, count: customerIds.length }, {
-          customerIds,
-          count: customerIds.length,
-        });
+        const client = await clientFor(args.profile);
+        const customerIds = await client.listAccessibleCustomers(args.login_customer_id);
+        const payload = { profile: client.profileName, customerIds, count: customerIds.length };
+        return ok(payload, payload);
       } catch (error) {
         return fail(error);
       }
@@ -102,7 +141,7 @@ export function registerGoogleAdsTools(server: McpServer, env: Env): void {
         "Expand a manager (MCC) account into the client accounts beneath it, with name, " +
         "currency, time zone and whether each one is itself a manager. Metrics are not " +
         "available on manager accounts, so use this to find the client account to query.",
-      inputSchema: z.object({
+      inputSchema: withProfile({
         manager_customer_id: customerIdField.describe(
           "Manager (MCC) customer id to expand, digits only.",
         ),
@@ -120,8 +159,15 @@ export function registerGoogleAdsTools(server: McpServer, env: Env): void {
       }),
       annotations: READ_ONLY,
     },
-    async ({ manager_customer_id, include_managers, levels }) => {
+    async (args: {
+      manager_customer_id: string;
+      include_managers?: boolean;
+      levels?: number;
+      profile?: string;
+    }) => {
+      const { manager_customer_id, include_managers, levels } = args;
       try {
+        const client = await clientFor(args.profile);
         const conditions = [`customer_client.level <= ${levels ?? 1}`, "customer_client.status = 'ENABLED'"];
         if (!include_managers) conditions.push("customer_client.manager = false");
 
@@ -132,9 +178,14 @@ export function registerGoogleAdsTools(server: McpServer, env: Env): void {
                   customer_client.status
            FROM customer_client
            WHERE ${conditions.join(" AND ")}`,
-          { pageSize: 1000 },
+          // A manager account is queried through itself unless told otherwise.
+          { pageSize: 1000, loginCustomerId: manager_customer_id },
         );
-        return ok({ clients: page.results, count: page.results.length });
+        return ok({
+          profile: client.profileName,
+          clients: page.results,
+          count: page.results.length,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -157,8 +208,9 @@ export function registerGoogleAdsTools(server: McpServer, env: Env): void {
         "• Money fields are micros: divide cost_micros by 1,000,000.\n" +
         "• Do not guess column names — call get_resource_metadata first if unsure.\n" +
         "• A page holds at most 10,000 rows; follow next_page_token to continue.",
-      inputSchema: z.object({
+      inputSchema: withProfile({
         customer_id: customerIdField,
+        login_customer_id: loginCustomerIdField,
         query: z
           .string()
           .describe(
@@ -178,14 +230,24 @@ export function registerGoogleAdsTools(server: McpServer, env: Env): void {
       }),
       annotations: READ_ONLY,
     },
-    async ({ customer_id, query, page_size, page_token }) => {
+    async (args: {
+      customer_id: string;
+      query: string;
+      page_size?: number;
+      page_token?: string;
+      login_customer_id?: string;
+      profile?: string;
+    }) => {
       try {
-        assertSelectQuery(query);
-        const page = await client.search(customer_id, query, {
-          pageSize: page_size,
-          pageToken: page_token,
+        assertSelectQuery(args.query);
+        const client = await clientFor(args.profile);
+        const page = await client.search(args.customer_id, args.query, {
+          pageSize: args.page_size,
+          pageToken: args.page_token,
+          loginCustomerId: args.login_customer_id,
         });
         return ok({
+          profile: client.profileName,
           results: page.results,
           rowCount: page.results.length,
           fieldMask: page.fieldMask,
@@ -206,7 +268,7 @@ export function registerGoogleAdsTools(server: McpServer, env: Env): void {
         "example 'campaign', 'ad_group', 'customer_client'), plus which metrics and segments " +
         "can be selected alongside it. Use this before writing a query instead of guessing " +
         "field names — a wrong field name fails the whole query.",
-      inputSchema: z.object({
+      inputSchema: withProfile({
         resource: z
           .string()
           .describe("GAQL resource name in snake_case, e.g. 'campaign' or 'ad_group_criterion'."),
@@ -220,8 +282,10 @@ export function registerGoogleAdsTools(server: McpServer, env: Env): void {
       }),
       annotations: READ_ONLY,
     },
-    async ({ resource, include_compatible }) => {
+    async (args: { resource: string; include_compatible?: boolean; profile?: string }) => {
+      const { resource, include_compatible } = args;
       try {
+        const client = await clientFor(args.profile);
         const name = resource.trim().replace(/[^a-z0-9_]/gi, "");
         if (!name) throw new GoogleAdsError(`Invalid resource name ${JSON.stringify(resource)}.`, 400);
 

@@ -7,7 +7,10 @@ export interface SecretsStoreSecret {
 export type SecretLike = string | SecretsStoreSecret | undefined;
 
 export interface Env {
-  // ── Google Ads credentials (secrets) ──────────────────────────────────────
+  // ── Google Ads credentials, default profile (secrets) ─────────────────────
+  // Every key below may also carry a `_<PROFILE>` suffix to define an
+  // additional profile — see src/profiles.ts. The index signature at the bottom
+  // is what makes those suffixed keys readable.
 
   /** Developer token from your Google Ads manager account. Sent as `developer-token`. */
   GOOGLE_ADS_DEVELOPER_TOKEN?: SecretLike;
@@ -59,11 +62,20 @@ export interface Env {
    * reach the Worker's direct URL and bypass the Access policy.
    */
   MCP_ALLOW_UNAUTHENTICATED?: string;
+
+  /**
+   * Profile-suffixed credentials (`GOOGLE_ADS_DEVELOPER_TOKEN_GLOBEX`, …) and any
+   * other binding the runtime injects. Typed loosely because the key names are
+   * only known at runtime; `readSecret` narrows the value.
+   */
+  [key: string]: unknown;
 }
 
 /** Read a secret that may be a plain string or a Secrets Store binding. */
-export async function readSecret(value: SecretLike): Promise<string | undefined> {
-  if (value === undefined) return undefined;
-  if (typeof value === "string") return value;
-  return value.get();
+export async function readSecret(value: unknown): Promise<string | undefined> {
+  if (typeof value === "string") return value.trim() || undefined;
+  if (value && typeof (value as SecretsStoreSecret).get === "function") {
+    return (value as SecretsStoreSecret).get();
+  }
+  return undefined;
 }
